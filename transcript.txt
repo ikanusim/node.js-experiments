@@ -1,0 +1,103 @@
+node.js in brief
+- Server side Javascript
+- Built on Google's V8
+- Evented non-blocking I/O. Similar to EventMachine or Twisted.
+- CommonJS module system
+- 8000 lines of C/C++, 2000 lines of Javascript, 14 contributors
+
+I/O needs to be done differently
+
+The way that we think about doing I/O makes things difficult. Writing servers and any kind of application is difficult because of the way we think about I/O.
+
+A lot of applications have lines like these
+
+  var result =
+    db.query("select * from T");
+  // use result
+
+What is the software doing while it queries the database?
+
+In many cases, just waiting for the response.
+
+You can't just wait for it to respond.
+I/O Latency
+  L1: 3 cycles
+  L2: 14 cycles
+  RAM: 250 cycles
+  DISK: 41,000,000 cycles
+  NETWORK: 240,000,000 cycles
+
+Better: Other threads of execution can run while you are waiting for the response.
+
+Apache vs NGINX
+- concurrency x reqs/sec: NGINX is twice as fast, maybe three times as fast
+- big difference in concurrency x memory: NGINX is constant, whereas Apache keeps growing
+
+Apache uses one thread per connection, NGINX uses an event loop.
+Context switching is expensive, execution stacks take up memory.
+Threads are not the right way to do concurrency. The right way is using an event loop.
+That requires that what you do never takes really long.
+
+Apache uses OS threads. There are other threading mechanisms like green threads or coroutines, but it's still machinery, it needs to be done.
+
+Threaded concurrency: locking problems, memory problems, not a good abstraction for what is actually happening.
+
+Code like
+
+  var result =
+    db.query("select * from T");
+
+either blocks the entire process or implies multiple execution stacks
+
+Code like
+
+  db.query("select * from T", function(result) {
+    // use result
+  });
+
+allows the program to return to the event loop immediately; no machinery required
+
+Register a callback, continue doing other things. When the query returns millions of clock cycles later, your callback is run.
+
+This is how I/O should be done.
+
+So why isn't everyone using event loops, callbacks and non-blocking I/O?
+
+Two reasons: cultural and infrastructural
+
+cultural bias: We're taught I/O with this:
+
+  puts("Enter your name: ");
+  var name = gets();
+  puts("Name: " + name);
+
+We're taught to demand input and do nothing until we have it.
+
+Code like
+
+  puts("Enter your name: ");
+  gets(function(name) {
+    puts("Name: " + name);
+  });
+
+is rejected as too complicated.
+
+It might be too complicated for the easiest case (like this example), but when writing an IRC server, it becomes very natural to write code like that.
+
+infrastructural: Single threaded event loops require I/O to be non-blocking; most libraries are not.
+
+EventMachine, Twisted, AnyEvent provide very good event loop platforms. Easy to create efficient servers. But users are confused how to combine with other available libraries.
+
+Javascript was designed specifically to be used with an event loop:
+- Anonymous functions, closures
+- Only one callback at a time (no need for variable locking)
+- I/O through DOM event callbacks
+
+The culture of Javascript is already geared towards evented programming.
+
+node.js project: to provide a purely evented, non-blocking infrastructure to script highly concurrent programs
+
+Design goals:
+- no function should directly perform I/O. To receive info from disk, network or another process there must be a callback.
+- low-level. Stream everything, never force the buffering of data. Do not remove functionality present at the POSIX layer. For example, support half-closed TCP connections.
+- Have built-in support for the most important protocols: TCP, DNS, HTTP
